@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { lerp } from '../utils/math.js'
+import { clamp } from '../utils/math.js'
 import { RIM_Y, RIM_Z, CAM_LERP } from '../data/constants.js'
 
 export class CameraController {
@@ -8,7 +8,8 @@ export class CameraController {
     this.camera.position.set(0, 5, -10)
 
     this.mode = 'FOLLOW_CURRY'
-    this._yaw = 0
+    this._yaw = Math.PI   // start facing toward hoop
+    this._pitch = 0.3     // slightly elevated
     this._rimcamTimer = 0
     this._rimcamDuration = 0
     this._prevMode = 'FOLLOW_CURRY'
@@ -20,6 +21,8 @@ export class CameraController {
     window.addEventListener('resize', () => this.handleResize())
   }
 
+  get yaw() { return this._yaw }
+
   setMode(mode, duration = 0) {
     if (mode === 'RIMCAM') {
       this._prevMode = this.mode
@@ -29,9 +32,10 @@ export class CameraController {
     this.mode = mode
   }
 
-  onMouseDrag(dx) {
-    this._yaw += dx * 0.005
-    this._yaw = Math.max(-Math.PI * 0.4, Math.min(Math.PI * 0.4, this._yaw))
+  onMouseMove(dx, dy) {
+    this._yaw   -= dx * 0.002
+    this._pitch -= dy * 0.002
+    this._pitch  = clamp(this._pitch, -0.1, 0.9)
   }
 
   handleResize() {
@@ -52,12 +56,13 @@ export class CameraController {
     let tl = this._targetLookAt
 
     if (this.mode === 'FOLLOW_CURRY') {
-      const offsetX = Math.sin(this._yaw) * 5.5
-      const offsetZ = -Math.cos(this._yaw) * 5.5
+      const yaw = this._yaw
+      const pitch = this._pitch
+      const dist = 5.5
       tp.set(
-        curryPos.x + offsetX,
-        curryPos.y + 3.5,
-        curryPos.z + offsetZ,
+        curryPos.x + Math.sin(yaw) * Math.cos(pitch) * dist,
+        curryPos.y + Math.sin(pitch) * dist + 1.5,
+        curryPos.z + Math.cos(yaw) * Math.cos(pitch) * dist,
       )
       tl.set(curryPos.x, curryPos.y + 1.5, curryPos.z)
     } else if (this.mode === 'SHOT_FOLLOW') {

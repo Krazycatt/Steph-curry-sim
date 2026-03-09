@@ -62,10 +62,17 @@ export class Ball {
     }
     this.body.velocity.set(0, 0, 0)
     this.body.angularVelocity.set(0, 0, 0)
+    this.carry(position)
+  }
+
+  // Move ball to position when not in flight (carrying / dribbling)
+  carry(position) {
     this.mesh.position.copy(position)
-    this.mesh.position.y = position.y
     this.shadowCircle.position.x = position.x
     this.shadowCircle.position.z = position.z
+    const heightFrac = Math.max(0, Math.min(1, position.y / 4))
+    this.shadowCircle.material.opacity = 0.35 * (1 - heightFrac * 0.8)
+    this.shadowCircle.scale.setScalar(0.6 + heightFrac * 0.4)
   }
 
   sync() {

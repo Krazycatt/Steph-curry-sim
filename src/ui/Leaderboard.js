@@ -13,6 +13,7 @@ export class Leaderboard {
 
   show(mode = 'challenge') {
     this._activeMode = mode
+    document.exitPointerLock()
     this._el.style.display = 'flex'
     this._render()
   }

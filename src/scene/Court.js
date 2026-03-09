@@ -50,6 +50,9 @@ export class Court {
     // Simple crowd silhouettes (rows of boxes)
     this._buildCrowd()
 
+    // 3-point line
+    this._build3PTLine()
+
     // Shot spot markers
     SHOT_SPOTS.forEach((spot) => {
       const geo = new THREE.TorusGeometry(0.4, 0.04, 8, 32)
@@ -65,6 +68,47 @@ export class Court {
       ring.position.set(spot.x, 0.02, -spot.z) // z is negative in spot data, positive in scene toward hoop
       this.scene.add(ring)
       this.spotMarkers.push(ring)
+    })
+  }
+
+  _build3PTLine() {
+    const RIM_Z_POS = 13.0
+    const arcRadius = 6.7
+    const cornerX = 6.0
+    const cornerZArc = RIM_Z_POS - Math.sqrt(arcRadius * arcRadius - cornerX * cornerX)
+    const farBaselineZ = 14.0
+
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0xaaaaaa,
+      emissiveIntensity: 0.25,
+      roughness: 0.5,
+    })
+
+    // Arc: sweep from right corner to left corner around hoop
+    const thetaMax = Math.asin(cornerX / arcRadius)
+    const arcPts = []
+    const segments = 72
+    for (let i = 0; i <= segments; i++) {
+      const θ = thetaMax - (2 * thetaMax * i / segments)
+      arcPts.push(new THREE.Vector3(
+        arcRadius * Math.sin(θ),
+        0.022,
+        RIM_Z_POS - arcRadius * Math.cos(θ),
+      ))
+    }
+    const arcCurve = new THREE.CatmullRomCurve3(arcPts)
+    const arcGeo = new THREE.TubeGeometry(arcCurve, 72, 0.045, 6, false)
+    this.scene.add(new THREE.Mesh(arcGeo, mat))
+
+    // Corner straight lines (left and right)
+    const cornerLineLen = farBaselineZ - cornerZArc
+    const cornerZCenter = (farBaselineZ + cornerZArc) / 2
+    ;[-cornerX, cornerX].forEach(x => {
+      const geo = new THREE.BoxGeometry(0.07, 0.02, cornerLineLen)
+      const mesh = new THREE.Mesh(geo, mat)
+      mesh.position.set(x, 0.022, cornerZCenter)
+      this.scene.add(mesh)
     })
   }
 

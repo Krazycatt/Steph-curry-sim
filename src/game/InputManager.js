@@ -4,8 +4,7 @@ export class InputManager {
     this._justPressed = new Set()
     this._justReleased = new Set()
     this.mouseDelta = { dx: 0, dy: 0 }
-    this._mouseDown = false
-    this._lastMouseX = 0
+    this.pointerLocked = false
 
     window.addEventListener('keydown', (e) => {
       if (!this._down.has(e.code)) {
@@ -17,16 +16,20 @@ export class InputManager {
       this._down.delete(e.code)
       this._justReleased.add(e.code)
     })
-    window.addEventListener('mousedown', (e) => {
-      this._mouseDown = true
-      this._lastMouseX = e.clientX
-    })
-    window.addEventListener('mouseup', () => { this._mouseDown = false })
     window.addEventListener('mousemove', (e) => {
-      if (this._mouseDown) {
-        this.mouseDelta.dx += e.clientX - this._lastMouseX
-        this._lastMouseX = e.clientX
+      if (this.pointerLocked) {
+        this.mouseDelta.dx += e.movementX
+        this.mouseDelta.dy += e.movementY
       }
+    })
+    document.addEventListener('pointerlockchange', () => {
+      this.pointerLocked = !!document.pointerLockElement
+    })
+  }
+
+  requestPointerLock(canvas) {
+    canvas.addEventListener('click', () => {
+      if (!this.pointerLocked) canvas.requestPointerLock()
     })
   }
 

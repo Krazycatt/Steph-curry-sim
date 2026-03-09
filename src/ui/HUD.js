@@ -12,6 +12,14 @@ export class HUD {
     this._threeVal = document.getElementById('hud-three')
 
     if (!this._ptsVal) this._buildHUDElements()
+
+    // Difficulty display
+    if (!document.getElementById('difficulty-display')) {
+      const dd = document.createElement('div')
+      dd.id = 'difficulty-display'
+      document.body.appendChild(dd)
+    }
+    this._difficultyDisplay = document.getElementById('difficulty-display')
   }
 
   _buildHUDElements() {
@@ -84,7 +92,34 @@ export class HUD {
     if (el) el.textContent = name
   }
 
+  setDifficulty(basePercent, isMoving) {
+    const el = this._difficultyDisplay
+    if (!el) return
+
+    let label, color
+    if (basePercent > 0.50) {
+      label = 'EASY'; color = '#44ff88'
+    } else if (basePercent >= 0.38) {
+      label = 'MODERATE'; color = '#FFC72C'
+    } else if (basePercent >= 0.27) {
+      label = 'HARD'; color = '#ff8800'
+    } else {
+      label = 'VERY HARD'; color = '#ff4444'
+    }
+
+    const moveBadge = isMoving
+      ? `<div class="on-the-move">ON THE MOVE</div>`
+      : ''
+
+    el.innerHTML = `
+      <div style="color:${color};font-weight:bold">● ${label}</div>
+      <div style="color:#aaa;font-size:0.8em">${(basePercent * 100).toFixed(0)}% base</div>
+      ${moveBadge}
+    `
+  }
+
   setVisible(v) {
     if (this._hud) this._hud.style.display = v ? 'flex' : 'none'
+    if (this._difficultyDisplay) this._difficultyDisplay.style.display = v ? 'block' : 'none'
   }
 }

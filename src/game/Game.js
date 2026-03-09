@@ -26,6 +26,7 @@ import { SuddenDeathStreak } from '../modes/SuddenDeathStreak.js'
 import { HeadToHead } from '../modes/HeadToHead.js'
 import { SHOT_SPOTS } from '../data/shotSpots.js'
 import { RIM_Y, RIM_Z, RIM_RADIUS } from '../data/constants.js'
+import { clamp } from '../utils/math.js'
 
 export class Game {
   constructor() {
@@ -62,11 +63,25 @@ export class Game {
     // Input
     this.input = new InputManager()
 
+    // Wire pointer lock to the renderer canvas
+    this.input.requestPointerLock(this.sceneManager.renderer.domElement)
+
+    // Click-to-play overlay
+    this._clickToPlay = document.getElementById('click-to-play')
+    if (!this._clickToPlay) {
+      this._clickToPlay = document.createElement('div')
+      this._clickToPlay.id = 'click-to-play'
+      this._clickToPlay.textContent = 'CLICK TO PLAY'
+      document.body.appendChild(this._clickToPlay)
+    }
+
     // Game state
     this.state = GameState.MENU
     this.currentMode = null
     this.currentSpotIdx = 0
     this.isStepBack = false
+    this._shotPoints = 2
+    this._shotIsThree = false
 
     // Stats
     this.stats = this._freshStats()
@@ -154,10 +169,10 @@ export class Game {
     if (this.state !== GameState.PLAYING) return
     this.state = GameState.WIND_UP
 
-    const spot = SHOT_SPOTS[this.currentSpotIdx]
-    const isCatchAndShoot = spot.id === 0 || spot.id === 4 // corners
+    const diff = this._calcDynamicDifficulty()
+    const isCatchAndShoot = this.curry.isStationary
     this._sweetWidth = this.timingBar.getSweetSpotWidth(
-      spot.basePercent,
+      diff.basePercent,
       this.stats.streak,
       this.stats.coldStreak,
       this.isStepBack,
@@ -176,9 +191,13 @@ export class Game {
     const quality = this.timingBar.getReleaseQuality()
     this.timingBar.hide()
 
-    const spot = SHOT_SPOTS[this.currentSpotIdx]
+    const diff = this._calcDynamicDifficulty()
+    this._shotPoints = diff.isThree ? 3 : 2
+    this._shotIsThree = diff.isThree
+    this._shotSpot = { points: this._shotPoints, type: diff.isThree ? '3PT' : '2PT' }
+
     const prob = this.ballPhysics.getMakeProbability(
-      quality, this.stats.streak, this.stats.coldStreak, spot.basePercent
+      quality, this.stats.streak, this.stats.coldStreak, diff.basePercent
     )
     const made = Math.random() < prob
 
@@ -214,7 +233,6 @@ export class Game {
     this._ballPrevY = startPos.y
     this._ballPassedPeak = false
     this._madeShot = made
-    this._shotSpot = spot
 
     // Camera follows ball
     this.cameraController.setMode('SHOT_FOLLOW')
@@ -225,15 +243,14 @@ export class Game {
     if (this._resultPending) return
     this._resultPending = true
 
-    const spot = this._shotSpot || SHOT_SPOTS[this.currentSpotIdx]
     this.stats.shots++
 
-    if (spot.type === '3PT') this.stats.threes++
+    if (this._shotIsThree) this.stats.threes++
 
     if (made) {
       this.stats.makes++
-      if (spot.type === '3PT') this.stats.threeMakes++
-      this.stats.points += spot.points
+      if (this._shotIsThree) this.stats.threeMakes++
+      this.stats.points += this._shotPoints
       this.stats.streak++
       this.stats.coldStreak = 0
       this.stats.bestStreak = Math.max(this.stats.bestStreak, this.stats.streak)
@@ -252,7 +269,7 @@ export class Game {
       this.particles.burst(new THREE.Vector3(0, RIM_Y + 0.5, RIM_Z), 80, 0xFFC72C)
       this.cameraController.setMode('RIMCAM', 1500)
 
-      this.toast.showRandomMake(spot.type === '3PT', this.stats.streak >= 3, this.stats.streak)
+      this.toast.showRandomMake(this._shotIsThree, this.stats.streak >= 3, this.stats.streak)
     } else {
       this.stats.coldStreak++
       this.stats.streak = 0
@@ -263,11 +280,41 @@ export class Game {
     this.hud.update(this.stats)
     this.collisionHandler.detach()
 
-    this.currentMode?.onShotResult(made, spot.points, spot)
+    this.currentMode?.onShotResult(made, this._shotPoints, this._shotSpot)
 
     // Reset ball after delay
     this._resultTimer = made ? 2000 : 1500
     this.state = GameState.RESULT_PENDING
+  }
+
+  _calcDynamicDifficulty() {
+    const cp = this.curry.position
+    const dx = cp.x - 0
+    const dz = cp.z - RIM_Z
+    const horizDist = Math.sqrt(dx * dx + dz * dz)
+
+    // Angle penalty: harder from sharp corners
+    const lateralAngle = Math.abs(Math.atan2(cp.x, RIM_Z - cp.z))
+    const anglePenalty = (lateralAngle / (Math.PI / 2)) * 0.08
+
+    const isThree = horizDist > 6.5
+    let basePercent
+    if (isThree) {
+      basePercent = 0.46 - (horizDist - 6.5) * 0.028 - anglePenalty
+      basePercent = clamp(basePercent, 0.18, 0.46)
+    } else {
+      basePercent = 0.60 - horizDist * 0.018 - anglePenalty
+      basePercent = clamp(basePercent, 0.36, 0.62)
+    }
+
+    // Moving shot penalty (up to -18% at full speed)
+    const moveRatio = this.curry.movementSpeed / 4.5
+    basePercent -= moveRatio * 0.18
+
+    // Catch-and-shoot bonus (stationary 1.5s+)
+    if (this.curry.isStationary) basePercent += 0.06
+
+    return { basePercent: clamp(basePercent, 0.10, 0.68), isThree, horizDist }
   }
 
   _doStepBack() {
@@ -336,13 +383,30 @@ export class Game {
       if (this._resultTimer <= 0) {
         this._resultPending = false
         this.state = GameState.PLAYING
-        // Reset ball to curry's hands
-        const cp = this.curry.position
-        this.ball.reset(new THREE.Vector3(cp.x + 0.3, cp.y + 1.8, cp.z))
+        this.ball.reset(new THREE.Vector3(0, 0, 0)) // position updated below by carry logic
+        this.cameraController.setMode('FOLLOW_CURRY')
         if (this.curry.animState !== 'shimmy' && this.curry.animState !== 'nightNight') {
           this.curry.setAnim('dribble')
         }
       }
+    }
+
+    // Ball follows Curry when not in flight
+    if (!this.ball.active) {
+      const cp = this.curry.position
+      const anim = this.curry.animState
+      let bx = cp.x + 0.2
+      let bz = cp.z + 0.05
+      let by
+      if (anim === 'dribble' || anim === 'move') {
+        // Bounce between floor and waist
+        by = 0.13 + Math.abs(Math.sin(this._animTime * 9)) * 0.75
+      } else if (anim === 'windUp' || anim === 'release' || anim === 'followThrough') {
+        by = cp.y + 1.5
+      } else {
+        by = cp.y + 0.95  // resting carry height
+      }
+      this.ball.carry(new THREE.Vector3(bx, by, bz))
     }
 
     // Entities
@@ -358,10 +422,29 @@ export class Game {
     this.hoop.update(dt)
     this.particles.update(dt)
 
+    // WASD free movement
+    if (this.state === GameState.PLAYING) {
+      const camYaw = this.cameraController.yaw
+      let vx = 0, vz = 0
+      if (this.input.isKeyDown('KeyW')) { vx -= Math.sin(camYaw); vz -= Math.cos(camYaw) }
+      if (this.input.isKeyDown('KeyS')) { vx += Math.sin(camYaw); vz += Math.cos(camYaw) }
+      if (this.input.isKeyDown('KeyA')) { vx -= Math.cos(camYaw); vz += Math.sin(camYaw) }
+      if (this.input.isKeyDown('KeyD')) { vx += Math.cos(camYaw); vz -= Math.sin(camYaw) }
+      const len = Math.sqrt(vx * vx + vz * vz)
+      const spd = 4.5
+      this.curry.velocity.set(
+        len > 0 ? (vx / len) * spd : 0,
+        0,
+        len > 0 ? (vz / len) * spd : 0
+      )
+    } else {
+      this.curry.velocity.set(0, 0, 0)
+    }
+
     // Camera
     this.cameraController.update(dt, this.curry.position, this.ball.position, this.state === GameState.BALL_IN_AIR)
-    if (this.input.mouseDelta.dx !== 0) {
-      this.cameraController.onMouseDrag(this.input.mouseDelta.dx)
+    if (this.input.mouseDelta.dx !== 0 || this.input.mouseDelta.dy !== 0) {
+      this.cameraController.onMouseMove(this.input.mouseDelta.dx, this.input.mouseDelta.dy)
     }
 
     // Mode update
@@ -374,7 +457,11 @@ export class Game {
         if (this.input.isKeyJustPressed(`Digit${i + 1}`)) this.selectSpot(i)
       }
       if (this.input.isKeyJustPressed('Space')) this._beginWindUp()
-      if (this.input.isKeyJustPressed('KeyS')) this._doStepBack()
+      if (this.input.isKeyJustPressed('KeyQ')) this._doStepBack()
+
+      // Live difficulty display
+      const diff = this._calcDynamicDifficulty()
+      this.hud.setDifficulty(diff.basePercent, this.curry.movementSpeed > 0.5)
     }
 
     if (this.state === GameState.WIND_UP) {
@@ -383,7 +470,19 @@ export class Game {
     }
 
     if (this.input.isKeyJustPressed('Escape')) {
-      if (this.state !== GameState.MENU) this.showMenu()
+      if (this.state !== GameState.MENU) {
+        if (this.input.pointerLocked) {
+          document.exitPointerLock()
+        } else {
+          this.showMenu()
+        }
+      }
+    }
+
+    // Click-to-play overlay visibility
+    if (this._clickToPlay) {
+      this._clickToPlay.style.display =
+        (this.state !== GameState.MENU && !this.input.pointerLocked) ? 'flex' : 'none'
     }
 
     this.input.flush()

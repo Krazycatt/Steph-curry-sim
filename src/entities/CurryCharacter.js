@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { lerp } from '../utils/math.js'
+import { lerp, clamp } from '../utils/math.js'
 import { SKIN } from '../data/constants.js'
 
 function limb(rTop, rBot, h, color) {
@@ -23,6 +23,10 @@ export class CurryCharacter {
     scene.add(this.root)
 
     this.targetPos = new THREE.Vector3(0, 0, 0)
+    this.velocity = new THREE.Vector3()
+    this.movementSpeed = 0
+    this.MAX_SPEED = 4.5
+    this._stationaryTime = 0
     this.animState = 'idle'
     this._animTime = 0
     this._stateTime = 0
@@ -212,31 +216,58 @@ export class CurryCharacter {
   }
 
   get position() { return this.root.position }
+  get isStationary() { return this._stationaryTime > 1.5 }
 
   update(dt) {
     this._animTime += dt
     this._stateTime += dt
     const t = this._animTime
 
-    // Move toward target
-    const dx = this.targetPos.x - this.root.position.x
-    const dz = this.targetPos.z - this.root.position.z
-    const dist = Math.sqrt(dx * dx + dz * dz)
+    const velLen = this.velocity.length()
+    let animSpeed = 0
 
-    if (dist > 0.05) {
-      const speed = Math.min(dist * 6, 5) * dt
-      this.root.position.x += (dx / dist) * speed
-      this.root.position.z += (dz / dist) * speed
-      // Face direction of movement
-      this.root.rotation.y = Math.atan2(dx, dz)
+    if (velLen > 0.01) {
+      // Velocity-based free movement (WASD)
+      this.root.position.x += this.velocity.x * dt
+      this.root.position.z += this.velocity.z * dt
+      // Keep targetPos in sync so lerp doesn't fight velocity
+      this.targetPos.copy(this.root.position)
+      this._stationaryTime = 0
+      // Face direction of velocity
+      this.root.rotation.y = Math.atan2(this.velocity.x, this.velocity.z)
       if (this.animState !== 'move' && this.animState !== 'windUp' && this.animState !== 'release') {
         this.setAnim('move')
       }
-    } else if (this.animState === 'move') {
-      this.setAnim('idle')
+      animSpeed = velLen
+    } else {
+      this._stationaryTime += dt
+
+      // Lerp toward target (spot selection / step-back)
+      const dx = this.targetPos.x - this.root.position.x
+      const dz = this.targetPos.z - this.root.position.z
+      const dist = Math.sqrt(dx * dx + dz * dz)
+
+      if (dist > 0.05) {
+        const speed = Math.min(dist * 6, 5) * dt
+        this.root.position.x += (dx / dist) * speed
+        this.root.position.z += (dz / dist) * speed
+        this.root.rotation.y = Math.atan2(dx, dz)
+        if (this.animState !== 'move' && this.animState !== 'windUp' && this.animState !== 'release') {
+          this.setAnim('move')
+        }
+        animSpeed = dist
+      } else if (this.animState === 'move') {
+        this.setAnim('idle')
+      }
     }
 
-    // Always face the hoop (RIM_Z is positive)
+    // Clamp to court bounds
+    this.root.position.x = clamp(this.root.position.x, -9, 9)
+    this.root.position.z = clamp(this.root.position.z, 0, 12)
+
+    this.movementSpeed = velLen
+
+    // Always face the hoop when idle/dribbling
     if (this.animState === 'idle' || this.animState === 'dribble') {
       const targetYaw = Math.atan2(0 - this.root.position.x, 13 - this.root.position.z)
       this.root.rotation.y = lerp(this.root.rotation.y, targetYaw, 0.08)
@@ -248,7 +279,7 @@ export class CurryCharacter {
     switch (this.animState) {
       case 'idle': this._animIdle(t); break
       case 'dribble': this._animDribble(t); break
-      case 'move': this._animMove(t, dist); break
+      case 'move': this._animMove(t, animSpeed); break
       case 'windUp': this._animWindUp(this._stateTime); break
       case 'release': this._animRelease(this._stateTime); break
       case 'followThrough': this._animFollowThrough(t); break

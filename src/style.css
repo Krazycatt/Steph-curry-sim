@@ -328,3 +328,42 @@ canvas {
   z-index: 40;
   display: none;
 }
+
+/* ── CLICK TO PLAY OVERLAY ── */
+#click-to-play {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #FFC72C;
+  font-size: 1.4em;
+  pointer-events: none;
+  letter-spacing: 0.1em;
+  font-weight: bold;
+}
+
+/* ── DIFFICULTY DISPLAY ── */
+#difficulty-display {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  z-index: 50;
+  text-align: right;
+  font-size: 0.85em;
+  display: none;
+  line-height: 1.5;
+}
+
+.on-the-move {
+  color: #ff8800;
+  font-weight: bold;
+  animation: pulse 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes pulse {
+  from { opacity: 0.6; }
+  to   { opacity: 1.0; }
+}
