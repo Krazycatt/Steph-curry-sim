@@ -1,0 +1,7 @@
+export const GameState = {
+  MENU: 'MENU',
+  PLAYING: 'PLAYING',
+  WIND_UP: 'WIND_UP',
+  BALL_IN_AIR: 'BALL_IN_AIR',
+  RESULT_PENDING: 'RESULT_PENDING',
+}
